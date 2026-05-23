@@ -12,6 +12,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const chatHistory = {};
+const processing = new Set(); // anti-spam
 
 async function sendWhatsApp(target, message) {
   try {
@@ -39,37 +40,52 @@ async function askGemini(userNumber, userMessage) {
     return result.response.text();
   } catch (error) {
     console.error("Error Gemini:", error.message);
-    return "Maaf, sistem sedang gangguan. Coba lagi ya!";
+    return null; // return null kalau error
   }
 }
 
 app.post("/webhook", async (req, res) => {
+  // Langsung balas 200 ke Fonnte
+  res.status(200).json({ status: "received" });
+
   const body = req.body;
   const sender = body.sender || body.from;
   const message = body.message || body.text || body.pesan;
 
-  res.status(200).json({ status: "received" });
-
   if (!sender || !message) return;
-  if (body.isgroup === "true" || body.type !== "text") return;
+  if (body.isgroup === "true") return;
+  if (body.type && body.type !== "text") return;
 
   const cleanSender = sender.replace(/[^0-9]/g, "");
 
-  if (message.toLowerCase().trim() === "reset") {
-    delete chatHistory[cleanSender];
-    await sendWhatsApp(cleanSender, "Sesi direset! Silakan tanya lagi seputar SPMB.");
-    return;
-  }
+  // Anti-spam: skip kalau nomor ini sedang diproses
+  if (processing.has(cleanSender)) return;
+  processing.add(cleanSender);
 
-  const greetings = ["halo", "hi", "hello", "hai", "mulai", "start", "menu"];
-  if (greetings.includes(message.toLowerCase().trim())) {
-    const welcome = `Halo! Selamat datang di Chatbot SPMB SMK Negeri 1 Kutasari 2026/2027!\n\nSaya siap membantu info:\n✅ Jadwal pendaftaran\n✅ Program keahlian\n✅ Cara mendaftar\n\nSilakan ketik pertanyaanmu!\n_Ketik *reset* untuk mulai ulang._`;
-    await sendWhatsApp(cleanSender, welcome);
-    return;
-  }
+  try {
+    if (message.toLowerCase().trim() === "reset") {
+      delete chatHistory[cleanSender];
+      await sendWhatsApp(cleanSender, "Sesi direset! Silakan tanya lagi seputar SPMB.");
+      return;
+    }
 
-  const reply = await askGemini(cleanSender, message);
-  await sendWhatsApp(cleanSender, reply);
+    const greetings = ["halo", "hi", "hello", "hai", "mulai", "start", "menu"];
+    if (greetings.includes(message.toLowerCase().trim())) {
+      const welcome = `Halo! 👋 Selamat datang di Chatbot SPMB SMK Negeri 1 Kutasari 2026/2027!\n\nSaya siap membantu info:\n✅ Jadwal pendaftaran\n✅ Program keahlian\n✅ Cara mendaftar\n\nSilakan ketik pertanyaanmu!\n_Ketik *reset* untuk mulai ulang._`;
+      await sendWhatsApp(cleanSender, welcome);
+      return;
+    }
+
+    const reply = await askGemini(cleanSender, message);
+    if (reply) {
+      await sendWhatsApp(cleanSender, reply);
+    }
+    // Kalau null (error Gemini), tidak kirim apa-apa
+
+  } finally {
+    // Hapus dari processing setelah selesai
+    setTimeout(() => processing.delete(cleanSender), 3000);
+  }
 });
 
 app.get("/", (req, res) => {
