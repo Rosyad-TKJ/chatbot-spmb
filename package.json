@@ -1,0 +1,14 @@
+{
+  "name": "chatbot-spmb",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "dotenv": "^16.0.0",
+    "@google/generative-ai": "^0.2.0"
+  }
+}
